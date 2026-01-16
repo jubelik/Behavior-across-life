@@ -1,0 +1,991 @@
+---
+title: "Behavior_final"
+author: "Justine Bélik"
+date: "2026-01-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readxl)
+library(tidyverse)
+library(fitdistrplus)
+library(flexsurv)
+library(bestNormalize)
+library(brms)
+library(ggridges)
+library(report)
+library(bayesplot)
+library(tibble)
+library(tidybayes)
+library(emmeans)
+library(MCMCglmm)
+```
+
+```{r}
+setwd("C:/Users/jbelik/Documents/Assistanat/These/Supervision/Memoire/2024/Sylvain/")
+
+comp <-read_excel("C:/Users/jbelik/Documents/Assistanat/These/Supervision/Memoire/2024/Sylvain/Data_Sylvain.xlsx", sheet = "Analysis")
+
+comp <- rename(comp, c("Length" = "Lenght (cm)", "TDM"="Total Distance Moved (cm)", "MV"="Mean Velocity (cm/s)", "CDA" = "Cumulative Duration in Arena (s)", "LA" = "Latence Arena (s)", "CDIZ" = "Cumulative Duration in Center (s)",  "LC" = "Latence Center (s)"))
+
+str(comp)
+
+comp$ID=as.factor(comp$ID)
+comp$Replicat=as.factor(comp$Replicat)
+comp$Batch=as.factor(comp$Batch)
+
+#transform the time variable with lubridate
+comp$Time=parse_date_time(comp$Time, "HM")
+comp$Time=as.numeric(comp$Time)
+comp$Time <- scale(comp$Time, center = TRUE, scale = TRUE)
+
+str(comp)
+
+comp$ID <- factor(comp$ID, levels = c("EPP24-1", "EPP24-2", "EPP24-3", "EPP24-4", "EPP24-5", "EPP24-6", "EPP24-7", "EPP24-8", "EPP24-9", "EPP24-10", "EPP24-11", "EPP24-12", "EPP24-13", "EPP24-14", "EPP24-15", "EPP24-16", "EPP24-17", "EPP24-18", "EPP24-19", "EPP24-20", "EPP24-21", "EPP24-22", "EPP24-23", "EPP24-24", "EPP24-25", "EPP24-26", "EPP24-27", "EPP24-28", "EPP24-29", "EPP24-30", "EPP24-31", "EPP24-32", "EPP24-33", "EPP24-34", "EPP24-35"))
+
+comp <- droplevels(comp[!comp$ID == 'EPP24-27',])
+comp <- droplevels(comp[!comp$ID == 'EPP24-15',])
+comp <- droplevels(comp[!comp$ID == 'EPP24-9',])
+comp <- comp[-25,]
+comp <- droplevels(comp[!comp$ID == 'EPP24-8',])
+
+comp[which(comp$TDM == 0),"TDM"] <- 0.0000001
+
+comp$DPH_s <- as.numeric(scale(comp$DPH))
+```
+
+```{r}
+comp$ID <- gsub("EPP24-", "EPP-", comp$ID)
+levels_ID <- paste0("EPP-", 1:35)
+comp$ID <- factor(comp$ID, levels = levels_ID)
+
+ggplot(comp, aes(x = as.numeric(as.character(DPH)), y = TDM, colour = ID)) + 
+  geom_smooth(se = F) +
+  ggtitle("TDM ~ DPH") +
+  xlab("DPH") +
+  ylab("TDM")
+```
+
+# 1 — Personality at 10 DPH (Random Intercept Model)
+
+```{r eval=FALSE, include=FALSE}
+comp10 <- subset(comp, DPH == 10)
+
+descdist(comp10$TDM) #weibull
+
+fits <- list(
+  weibull = fitdist(comp10$TDM, "weibull"),
+  lnorm   = fitdist(comp10$TDM, "lnorm"),
+  loglogis= fitdist(comp10$TDM, "llogis")
+)
+
+fit.llogis <- fitdist(comp10$TDM, "llogis")
+plot(fit.llogis)
+
+bestNormalize(comp$TDM)
+
+# Models were fitted to square-root transformed TDM to stabilize variance.
+b10 <- brm(
+  sqrt(TDM) ~ (1 | ID),
+  data = comp10,
+  family = gaussian(),
+  cores = 4, chains = 4, iter = 6000, warmup = 3000
+)
+
+saveRDS(b10, "b10.rds")
+b10 <- readRDS("b10.rds")
+
+#check if iteration etc are good
+print(b10) #Rhat = 1.00
+
+#ICCs were computed as the ratio of between-individual variance to total variance.
+
+draws10 <- as_draws_df(b10)
+var_inter <- draws10$sd_ID__Intercept^2
+var_intra <- draws10$sigma^2
+mean(var_inter)
+mean(var_intra)
+
+# ICC draws
+icc_draws <- var_inter / (var_inter + var_intra)
+range(icc_draws)
+m <- mean(icc_draws)
+ci <- quantile(icc_draws, c(0.025, 0.975))
+
+df_icc_10 <- data.frame(icc = icc_draws)
+
+ggplot(df_icc_10, aes(x = icc)) +
+  geom_density(fill = "skyblue", alpha = 0.4) +
+  geom_vline(xintercept = m, color = "blue", linewidth = 1) +
+  geom_vline(xintercept = ci[1], color = "red", linetype = "dashed") +
+  geom_vline(xintercept = ci[2], color = "red", linetype = "dashed") +
+  labs(
+    title = "ICC distribution (10 DPH)",
+    x = "ICC",
+    y = "Density",
+    caption = sprintf(
+      "Mean = %.3f,  IC95%% = [%.3f, %.3f]",
+      m, ci[1], ci[2]
+    )
+  ) +
+  theme_minimal()
+```
+
+```{r}
+comp60 <- subset(comp, DPH == 60)
+
+b60 <- brm(
+  sqrt(TDM) ~ (1 | ID),
+  data = comp60,
+  family = gaussian(),
+  cores = 4, chains = 4, iter = 6000, warmup = 3000
+)
+
+saveRDS(b60, "b60.rds")
+b60 <- readRDS("b60.rds")
+
+draws60 <- as_draws_df(b60)
+var_inter <- draws60$sd_ID__Intercept^2
+var_intra <- draws60$sigma^2
+mean(var_inter)
+mean(var_intra)
+
+icc_draws <- var_inter / (var_inter + var_intra)
+range(icc_draws)
+
+m <- mean(icc_draws)
+ci <- quantile(icc_draws, c(0.025, 0.975))
+
+df_icc_60 <- data.frame(icc = icc_draws)
+
+ggplot(df_icc_60, aes(x = icc)) +
+  geom_density(fill = "skyblue", alpha = 0.4) +
+  geom_vline(xintercept = m, color = "blue", linewidth = 1) +
+  geom_vline(xintercept = ci[1], color = "red", linetype = "dashed") +
+  geom_vline(xintercept = ci[2], color = "red", linetype = "dashed") +
+  labs(
+    title = "ICC distribution (60 DPH)",
+    x = "ICC",
+    y = "Density",
+    caption = sprintf(
+      "Moyenne = %.3f,  IC95%% = [%.3f, %.3f]",
+      m, ci[1], ci[2]
+    )
+  ) +
+  theme_minimal()
+```
+
+```{r}
+comp110 <- subset(comp, DPH == 110)
+
+b110 <- brm(
+  sqrt(TDM) ~ (1 | ID),
+  data = comp110,
+  family = gaussian(),
+  cores = 4, chains = 4, iter = 6000, warmup = 3000
+)
+
+saveRDS(b110, "b110.rds")
+b110 <- readRDS("b110.rds")
+
+draws110 <- as_draws_df(b110)
+var_inter <- draws110$sd_ID__Intercept^2
+var_intra <- draws110$sigma^2
+mean(var_inter)
+mean(var_intra)
+
+# ICC draws
+icc_draws <- var_inter / (var_inter + var_intra)
+range(icc_draws)
+
+m <- mean(icc_draws)
+ci <- quantile(icc_draws, c(0.025, 0.975))
+
+df_icc_110 <- data.frame(icc = icc_draws)
+
+ggplot(df_icc_110, aes(x = icc)) +
+  geom_density(fill = "skyblue", alpha = 0.4) +
+  geom_vline(xintercept = m, color = "blue", linewidth = 1) +
+  geom_vline(xintercept = ci[1], color = "red", linetype = "dashed") +
+  geom_vline(xintercept = ci[2], color = "red", linetype = "dashed") +
+  labs(
+    title = "ICC distribution (110 DPH)",
+    x = "ICC",
+    y = "Density",
+    caption = sprintf(
+      "Moyenne = %.3f,  IC95%% = [%.3f, %.3f]",
+      m, ci[1], ci[2]
+    )
+  ) +
+  theme_minimal()
+```
+
+```{r}
+comp260 <- subset(comp, DPH == 260)
+
+b260 <- brm(
+  sqrt(TDM) ~ (1 | ID),
+  data = comp260,
+  family = gaussian(),
+  cores = 4, chains = 4, iter = 6000, warmup = 3000
+)
+
+saveRDS(b260, "b260.rds")
+b260 <- readRDS("b260.rds")
+
+draws260 <- as_draws_df(b260)
+var_inter <- draws260$sd_ID__Intercept^2
+var_intra <- draws260$sigma^2
+mean(var_inter)
+mean(var_intra)
+
+# ICC draws
+icc_draws <- var_inter / (var_inter + var_intra)
+range(icc_draws)
+
+m <- mean(icc_draws)
+ci <- quantile(icc_draws, c(0.025, 0.975))
+
+df_icc_260 <- data.frame(icc = icc_draws)
+
+ggplot(df_icc_260, aes(x = icc)) +
+  geom_density(fill = "skyblue", alpha = 0.4) +
+  geom_vline(xintercept = m, color = "blue", linewidth = 1) +
+  geom_vline(xintercept = ci[1], color = "red", linetype = "dashed") +
+  geom_vline(xintercept = ci[2], color = "red", linetype = "dashed") +
+  labs(
+    title = "ICC distribution (260 DPH)",
+    x = "ICC",
+    y = "Density",
+    caption = sprintf(
+      "Moyenne = %.3f,  IC95%% = [%.3f, %.3f]",
+      m, ci[1], ci[2]
+    )
+  ) +
+  theme_minimal()
+```
+
+```{r}
+comp410 <- subset(comp, DPH == 410)
+
+b410 <- brm(
+  sqrt(TDM) ~ (1 | ID),
+  data = comp410,
+  family = gaussian(),
+  cores = 4, chains = 4, iter = 6000, warmup = 3000
+)
+
+saveRDS(b410, "b410.rds")
+b410 <- readRDS("b410.rds")
+
+draws410 <- as_draws_df(b410)
+var_inter <- draws410$sd_ID__Intercept^2
+var_intra <- draws410$sigma^2
+mean(var_inter)
+mean(var_intra)
+
+# ICC draws
+icc_draws <- var_inter / (var_inter + var_intra)
+range(icc_draws)
+
+m <- mean(icc_draws)
+ci <- quantile(icc_draws, c(0.025, 0.975))
+
+df_icc_410 <- data.frame(icc = icc_draws)
+
+ggplot(df_icc_410, aes(x = icc)) +
+  geom_density(fill = "skyblue", alpha = 0.4) +
+  geom_vline(xintercept = m, color = "blue", linewidth = 1) +
+  geom_vline(xintercept = ci[1], color = "red", linetype = "dashed") +
+  geom_vline(xintercept = ci[2], color = "red", linetype = "dashed") +
+  labs(
+    title = "ICC distribution (410 DPH)",
+    x = "ICC",
+    y = "Density",
+    caption = sprintf(
+      "Moyenne = %.3f,  IC95%% = [%.3f, %.3f]",
+      m, ci[1], ci[2]
+    )
+  ) +
+  theme_minimal()
+```
+
+```{r}
+df_icc <- bind_rows(
+  list(
+    `10` = df_icc_10,
+    `60` = df_icc_60,
+    `110` = df_icc_110,
+    `260` = df_icc_260,
+    `410` = df_icc_410
+  ),
+  .id = "DPH"
+) %>%
+  mutate(DPH = as.numeric(DPH))
+
+summary_df <- df_icc %>%
+  dplyr::group_by(DPH) %>%
+  dplyr::summarize(
+    icc_mean = mean(icc),
+    icc_lwr  = quantile(icc, 0.025),
+    icc_upr  = quantile(icc, 0.975),
+    .groups = "drop"
+  )
+
+# Ridgeline plot
+ggplot(df_icc, aes(x = icc, y = factor(DPH), fill = factor(DPH))) +
+  geom_density_ridges(
+    alpha = 0.6, color = "black",
+    scale = 0.9, rel_min_height = 0.01
+  ) +
+  geom_point(data = summary_df, aes(x = icc_mean, y = factor(DPH)),
+             color = "black", size = 2) +
+  geom_segment(data = summary_df,
+               aes(x = icc_lwr, xend = icc_upr,
+                   y = factor(DPH), yend = factor(DPH)),
+               color = "black", linewidth = 0.8) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal(base_size = 12) +
+  xlim(0, 1.00) +
+  labs(
+    title = "Posterior distributions of ICC by developmental stage",
+    x = "ICC",
+    y = "DPH",
+    caption = "Dot: mean ICC; Line: 95% credible interval"
+  ) +
+  theme(
+    plot.caption = element_text(hjust = 0.5, face= "italic"),
+    plot.title.position = "plot",
+    legend.position = "none",
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+# 2 — Data all together (Random Slopes / Reaction Norm)
+## Step 2a — Check model comparison
+
+```{r}
+descdist(comp$TDM)
+
+fits <- list(
+  weibull = fitdist(comp$TDM, "weibull"),
+  lnorm   = fitdist(comp$TDM, "lnorm"),
+  loglogis= fitdist(comp$TDM, "llogis")
+)
+
+gofstat(fits) #weibull is better, llogis not too bad
+
+fit.weibull <- fitdist(comp$TDM, "weibull")
+plot(fit.weibull)
+```
+
+Selection of fixed effect without random ones, then after random effect then after fixed again, including the selected fixed one.
+
+```{r}
+priors_m1 <- c(
+  prior(normal(log(700), 0.25), class = "Intercept"),
+  prior(gamma(6, 1.2), class = "shape")
+)
+
+m_1 <- brm(
+  TDM ~ 1,
+  data = comp,
+  family = weibull(),
+  prior  = priors_m1,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+t_r <- brm(
+  TDM ~ Time + Replicat,
+  data = comp,
+  family = weibull(),
+  prior  = priors_m1,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+t <- brm(
+  TDM ~ Time,
+  data = comp,
+  family = weibull(),
+  prior  = priors_m1,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+r <- brm(
+  TDM ~ Replicat,
+  data = comp,
+  family = weibull(),
+  prior  = priors_m1,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+loo_Time_Rep <- loo(t_r)
+loo_Time <- loo(t)
+loo_Rep <- loo(r)
+loo_1 <- loo(m_1)
+
+loo_cmp <- loo_compare(loo_Time_Rep, loo_Time, loo_Rep, loo_1)
+loo_cmp  #m_1 > r > t > t_r
+#Time and Replicat are not selected as fixed effect
+```
+
+Models of increasing complexity
+
+```{r}
+priors_m1 <- c(
+  prior(normal(log(700), 0.25), class = "Intercept"),
+  prior(gamma(6, 1.2), class = "shape")
+)
+
+m_1 <- brm(
+  TDM ~ 1,
+  data = comp,
+  family = weibull(),
+  prior  = priors_m1,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+) 
+#same as before
+
+priors_m2s <- c(
+  priors_m1,
+  prior(normal(0, 0.15), class = "b"),
+  prior(normal(0, 0.4), class = "sds")
+)
+
+m_2s <- brm(
+  TDM ~ s(DPH_s, k = 3),
+  data = comp,
+  family = weibull(),
+  prior  = priors_m2s,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+priors_m3s <- c(
+  priors_m2s,
+  prior(exponential(2.5), class = "sd")
+)
+
+m_3s <- brm(
+  TDM ~ s(DPH_s, k = 3) + (1|ID),
+  data = comp,
+  family = weibull(),
+  prior  = priors_m3s,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+m_4s <- brm(
+  TDM ~ s(DPH_s, k = 3) + (DPH_s || ID),
+  data = comp,
+  family = weibull(),
+  prior  = priors_m3s,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+priors_m5s <- c(
+  priors_m3s,
+  prior(lkj(2), class = "cor")
+)
+
+m_5s <- brm(
+  TDM ~ s(DPH_s, k = 3) + (DPH_s | ID),
+  data = comp,
+  family = weibull(),
+  prior  = priors_m5s,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+saveRDS(m_2s, "m_2s.rds")
+saveRDS(m_3s, "m_3s.rds")
+saveRDS(m_4s, "m_4s.rds")
+saveRDS(m_5s, "m_5s.rds")
+
+m_1 <- readRDS("m_1.rds")
+m_2s <- readRDS("m_2s.rds")
+m_3s <- readRDS("m_3s.rds")
+m_4s <- readRDS("m_4s.rds")
+m_5s <- readRDS("m_5s.rds")
+
+```
+
+Model comparison
+
+```{r}
+loo_m1 <- loo(m_1)
+loo_m2s <- loo(m_2s)
+loo_m3s <- loo(m_3s)
+loo_m4s <- loo(m_4s)
+loo_m5s <- loo(m_5s)
+
+loos <- loo_compare(loo_m1, loo_m2s, loo_m3s, loo_m4s, loo_m5s)
+loos #m_5s
+
+report(loos, include_IC = TRUE, include_ENP = FALSE) #m_5s
+loo_tab <- as.data.frame(loos)
+
+loo_tab$model <- c("m5", "m4", "m3", "m1", "m2")
+final_tab <- loo_tab[, c("model", "elpd_loo", "elpd_diff", "se_diff")]
+colnames(final_tab) <- c("Model", "ELPD_LOO", "Delta_ELPD", "SE_Delta_ELPD")
+final_tab
+
+# or stacking weights
+loo_list <- list(
+  m1 = loo_m1,
+  m2 = loo_m2s,
+  m3 = loo_m3s,
+  m4 = loo_m4s,
+  m5 = loo_m5s
+)
+
+loo_model_weights(loo_list, method = "stacking")
+
+loo_df <- as.data.frame(loos)
+loo_df$model <- rownames(loo_df)
+loo_df$model <- factor(loo_df$model, levels = loo_df$model)
+
+ggplot(loo_df, aes(x = model, y = elpd_diff)) +
+  geom_point(size = 3) +
+  geom_errorbar(
+    aes(
+      ymin = elpd_diff - se_diff,
+      ymax = elpd_diff + se_diff
+    ),
+    width = 0.15
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+  coord_flip() +
+  theme_bw(base_size = 14) +
+  labs(
+    title = "Model comparison using LOO cross-validation",
+    x = "Model",
+    y = "Δ ELPD (relative to best model)",
+    caption = "Points: mean difference in expected log predictive density; bars: ±1 SE"
+  )
+```
+
+Test the impact of DPH as a fixed effect when the random effect are selected. Important because m1 is better than m2, but none of those include random effect.
+
+```{r}
+priors_ms <- c(
+  prior(normal(log(700), 0.25), class = "Intercept"),
+  prior(exponential(2.5), class = "sd"),
+  prior(lkj(2), class = "cor"),
+  prior(gamma(6, 1.2), class = "shape")
+)
+
+m_s <- brm(
+  TDM ~ 1 + (DPH_s | ID),
+  data = comp,
+  family = weibull(),
+  prior  = priors_ms,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+saveRDS(m_s, "m_s.RDS")
+
+loo_ms <- loo(m_s)
+loo_m5s <- loo(m_5s)
+loo_compare(loo_ms, loo_m5s) #slight preference for m_5s
+
+```
+
+Based on m5, we are testing the fixed effect again
+
+```{r}
+m_5s <- brm(
+  TDM ~ s(DPH_s, k = 3) + (DPH_s | ID),
+  data = comp,
+  family = weibull(),
+  prior  = priors_m5s,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+m_5s_t <- brm(
+  TDM ~ s(DPH_s, k = 3) + Time + (DPH_s | ID),
+  data = comp,
+  family = weibull(),
+  prior  = priors_m5s,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+m_5s_r <- brm(
+  TDM ~ s(DPH_s, k = 3) + Replicat + (DPH_s | ID),
+  data = comp,
+  family = weibull(),
+  prior  = priors_m5s,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+m_5s_t_r <- brm(
+  TDM ~ s(DPH_s, k = 3) + Time + Replicat + (DPH_s | ID),
+  data = comp,
+  family = weibull(),
+  prior  = priors_m5s,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+loo_5s <- loo(m_5s)
+loo_5s_t <- loo(m_5s_t)
+loo_5s_r <- loo(m_5s_r)
+loo_5s_t_r <- loo(m_5s_t_r)
+
+loo_cmp <- loo_compare(loo_5s, loo_5s_t, loo_5s_r, loo_5s_t_r)
+loo_cmp  #m_5s_r is slightly better but not enough to not keep the most parcimonious model
+
+saveRDS(m_5s_t_r, "m_5s_t_r.rds")
+saveRDS(m_5s_t, "m_5s_t.rds")
+saveRDS(m_5s_r, "m_5s_r.rds")
+```
+
+Leave-one-out cross-validation indicated no meaningful differences in predictive performance among candidate models (|ΔELPD| < SE), therefore the most parsimonious model was retained.
+
+```{r}
+priors_final <- c(
+  prior(normal(log(700), 0.25), class = "Intercept"),
+  prior(normal(0, 0.15), class = "b"),
+  prior(exponential(2.5), class = "sd"),
+  prior(lkj(2), class = "cor"),
+  prior(gamma(6, 1.2), class = "shape"),
+  prior(normal(0, 0.4), class = "sds")
+)
+
+m_final <- brm(
+  TDM ~ s(DPH_s, k = 3) + (DPH_s | ID),
+  data = comp,
+  family = weibull(),
+  prior  = priors_final,
+  iter   = 4000, warmup = 2000, chains = 4, cores = 4,
+  control = list(adapt_delta = 0.995, max_treedepth = 15),
+  save_pars = save_pars(all = TRUE)
+)
+
+saveRDS(m_final, "m_final.rds")
+m_final <- readRDS("m_final.rds") 
+```
+
+Model diagnostic
+
+```{r}
+summary(m_final)
+plot(m_final)
+
+mcmc_trace(as_draws_df(m_final),
+           pars = c("b_Intercept", "bs_sDPH_s_1"))
+
+pairs(m_final,
+      variable = c("b_Intercept",
+                   "bs_sDPH_s_1",
+                   "shape",
+                   "sd_ID__Intercept",
+                   "sd_ID__DPH_s"))
+
+plot(conditional_smooths(m_final), rug = TRUE) #spline without random effect
+
+plot(conditional_effects(m_final), rug = TRUE) #how does TDM varies with DPH_s (95%CI)
+```
+
+Visualization of final model
+
+```{r}
+# Behavior score (value normalized between 0 and 1)
+behavior_score <- comp %>%
+  group_by(ID) %>%
+  summarise(score = mean(TDM, na.rm = TRUE)) %>%
+  mutate(score = (score - min(score)) / (max(score) - min(score)))
+
+newdat <- expand_grid(
+  ID = unique(comp$ID),
+  DPH_s = seq(min(comp$DPH_s), max(comp$DPH_s), length.out = 100)
+)
+
+# fixed + random
+pred_full <- add_epred_draws(m_final, newdata = newdat, ndraws = 200) %>%
+  left_join(behavior_score, by = "ID")
+
+pred_smooth <- pred_full %>%
+  mean_qi(.epred) %>%
+  left_join(behavior_score, by = "ID")
+
+#only fixed
+pred_fixed <- add_epred_draws(
+  m_final,
+  newdata = newdat,
+  re_formula = NA,
+  ndraws = 200
+)
+
+comp_mean <- comp %>%
+  group_by(ID, DPH_s) %>%
+  summarise(
+    TDM_mean = median(TDM, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(behavior_score, by = "ID")
+```
+
+Splines by ID
+
+```{r}
+ggplot() +
+  ylim(0, 1750)+
+  geom_line(
+    data = pred_smooth,
+    aes(x = DPH_s, y = .epred, group = ID, colour = score),
+    alpha = 0.5, linewidth = 1
+  ) +
+  geom_point(
+    data = comp_mean,
+    aes(x = DPH_s, y = TDM_mean, colour = score),
+    size = 2
+  ) +
+  scale_colour_viridis_c(option = "plasma") +
+  theme_bw() +
+  labs(
+    title = "Individual smooths (fixed + random effects)",
+    x = "Days Post Hatching (scaled)",
+    y = "Total Distance Moved (cm)",
+    colour = "Score"
+  )
+```
+
+Random slopes
+
+```{r}
+ran <- ranef(m_final)$ID
+
+ID_slopes <- tibble(
+  ID = rownames(ran[, , "Intercept"]),
+  b0 = ran[, , "Intercept"][, "Estimate"],
+  b1 = ran[, , "DPH_s"][, "Estimate"]
+) %>%
+  left_join(behavior_score, by = "ID")
+
+dph_grid <- seq(min(comp$DPH_s), max(comp$DPH_s), length.out = 100)
+
+all_lines <- ID_slopes %>%
+  crossing(DPH_s = dph_grid) %>%
+  mutate(pred = b0 + b1 * DPH_s)
+
+ggplot(all_lines, aes(x = DPH_s, y = pred,
+                      group = ID, colour = score)) +
+  geom_line(alpha = 0.5, linewidth = 1) +
+  scale_colour_viridis_c(option = "plasma") +
+  theme_minimal(base_size = 14) +
+  theme_bw() + 
+  labs(
+    title = "Random slopes",
+    x = "Days Post Hatching (scaled)",
+    y = "Random-effect prediction",
+    colour = "Score"
+  )
+```
+
+Behavior score and slopes
+
+```{r}
+slopes_df$group <- ifelse(slopes_df$score > median(slopes_df$score),
+                           "bold", "shy")
+
+slopes_df$group <- factor(slopes_df$group)
+
+summary(model_slope_group)
+```
+
+Trying with the "extreme"
+
+```{r}
+slopes_df <- ID_slopes
+q <- quantile(slopes_df$score, probs = c(0.25, 0.75), na.rm = TRUE)
+
+slopes_df$group <- ifelse(
+  slopes_df$score <= q[1], "shy",
+  ifelse(slopes_df$score >= q[2], "bold", "middle")
+)
+
+slopes_df$group <- factor(slopes_df$group,
+                          levels = c("shy", "middle", "bold"))
+
+table(slopes_df$group)
+
+model_slope_group <- brm(
+  b1 ~ group,
+  data = slopes_df,
+  family = gaussian(),
+  chains = 4, cores = 4,
+  iter = 4000, warmup = 2000
+)
+
+saveRDS(model_slope_group, "model_slope_group.rds")
+model_slope_group <- readRDS("model_slope_group.rds")
+
+summary(model_slope_group)
+```
+
+Individual slopes differed clearly between bold and shy individuals, whereas individuals with intermediate behavioral scores did not differ credibly from shy individuals, consistent with substantial overlap in their posterior distributions.
+
+```{r}
+emm <- emmeans(
+  model_slope_group,
+  ~ group,
+  type = "response"
+)
+
+emm_df <- as.data.frame(emm)
+
+ggplot(slopes_df, aes(x = group, y = b1, fill = group)) +
+  geom_violin(trim = FALSE, alpha = 0.6, color = NA) +
+  geom_point(position = position_jitter(width = 0.05), size = 1, alpha = 0.8) +
+  geom_point(
+    data = emm_df,
+    aes(x = group, y = emmean),
+    shape = 4, size = 5, color = "black", inherit.aes = FALSE
+  ) +
+  geom_errorbar(
+    data = emm_df,
+    aes(x = group, ymin = lower.HPD, ymax = upper.HPD),
+    width = 0.15, size = 0.6, color = "black",
+    inherit.aes = FALSE
+  ) +
+  theme_bw() +
+  scale_fill_manual(values = c("bold" = "#FCA636FF",
+                               "middle" = "#FCA186AA",
+                               "shy" = "#6A00A8FF")) +
+  theme(
+    legend.position = "none",
+    axis.title.x  = element_blank(),
+    axis.text.x   = element_text(size = 11),
+    axis.text.y   = element_text(size = 11),
+    axis.title.y  = element_text(size = 11)
+  ) +
+  labs(
+    title = "Posterior estimates of group-level slopes",
+    y = "Individual linear slope",
+    caption = "Crosses indicate posterior means; error bars represent 95% credible intervals"
+  )
+
+```
+
+# 3 - Is behavior predictie of latter stages ?
+We are using the package MCMCglmmm for this third part
+
+```{r}
+comp <- comp %>%
+  mutate(
+    DPH = factor(DPH, levels = c("10", "60", "110", "260", "410")),
+    ID = factor(ID),
+    Replicat = factor(Replicat)
+  )
+
+mcmc_dat <- comp %>%
+  rename(y = TDM, TimePoint = DPH) %>%  
+  mutate(
+    TimePoint = factor(TimePoint, levels = c("10", "60", "110", "260", "410")),
+    ID = factor(ID),
+    Replicat = factor(Replicat)
+  )
+
+n_traits <- length(levels(mcmc_dat$TimePoint))
+
+prior <- list(
+  G = list(
+    G1 = list(V = diag(n_traits), nu = n_traits + 0.002)
+  ),
+  R = list(
+    V = diag(n_traits), nu = n_traits + 0.002
+  )
+)
+
+set.seed(123)
+
+m_mcmc <- MCMCglmm(
+  fixed = y ~ TimePoint - 1,            
+  random = ~ us(TimePoint):ID,          
+  rcov   = ~ us(TimePoint):units,       
+  family = "gaussian",
+  data = mcmc_dat,
+  prior = prior,
+  nitt = 610000, burnin = 10000, thin = 50,
+  verbose = TRUE
+)
+
+saveRDS(m_mcmc, "m_mcmc.rds")
+m_mcmc <- readRDS("m_mcmc.rds")
+
+G_mean <- matrix(colMeans(m_mcmc$VCV[, 1:(n_traits^2)]), n_traits, n_traits)
+rownames(G_mean) <- colnames(G_mean) <- levels(mcmc_dat$TimePoint)
+G_cor <- cov2cor(G_mean)
+G_cor
+
+G_long <- reshape2::melt(G_cor)
+
+G_long <- G_long %>%
+  mutate(
+    x = as.numeric(factor(Var1, levels = rownames(G_cor))),
+    y = as.numeric(factor(Var2, levels = colnames(G_cor)))
+  )
+
+G_long_upper <- G_long %>%
+  filter(x <= y)
+
+ggplot(G_long_upper, aes(x = x, y = y, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(value, 2)), color = "black", size = 4) +
+  scale_fill_viridis_c(option = "plasma") + 
+  scale_x_continuous(
+    breaks = 1:n_traits,
+    labels = rownames(G_cor),
+    expand = c(0, 0)
+  ) +
+  scale_y_continuous(
+    breaks = 1:n_traits,
+    labels = rownames(G_cor),
+    expand = c(0, 0)
+  ) +
+  coord_fixed() +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 1),
+    panel.grid = element_blank()
+  ) +
+  labs(
+    x = "",
+    y = "",
+    fill = "Among-ID corr.",
+    title = "Among-individuals correlation matrix"
+  )
+```
+
+
+
