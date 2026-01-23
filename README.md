@@ -1,2 +1,2 @@
 # Behavior-across-life
-Code for the paper "Distangling personality, repeatability and predictivity with self-fertilizing vertebrate"
+Code for the paper "DISENTANGLING BEHAVIORAL REPEATABILITY, PERSONALITY AND PREDICTIVITY OF A SELF-FERTILIZING VERTEBRATE"
