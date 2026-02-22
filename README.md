@@ -1,2 +1,2 @@
 # Behavior-across-life
-Code for the paper "DISENTANGLING BEHAVIORAL REPEATABILITY, PERSONALITY AND PREDICTABILITY OF A SELF-FERTILIZING VERTEBRATE"
+Data and code for the paper "Early behavioral repeatability does not predict personality: emergence of stable personality in a self-fertilizing fish"
