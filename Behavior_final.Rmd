@@ -26,9 +26,9 @@ library(MCMCglmm)
 ```
 
 ```{r}
-setwd("C:/Users/jbelik/Documents/Assistanat/These/Supervision/Memoire/2024/Sylvain/")
+setwd("XXX")
 
-comp <-read_excel("C:/Users/jbelik/Documents/Assistanat/These/Supervision/Memoire/2024/Sylvain/Data_Sylvain.xlsx", sheet = "Analysis")
+comp <-read_excel("XXX/Data_Sylvain.xlsx", sheet = "Analysis")
 
 comp <- rename(comp, c("Length" = "Lenght (cm)", "TDM"="Total Distance Moved (cm)", "MV"="Mean Velocity (cm/s)", "CDA" = "Cumulative Duration in Arena (s)", "LA" = "Latence Arena (s)", "CDIZ" = "Cumulative Duration in Center (s)",  "LC" = "Latence Center (s)"))
 
@@ -47,16 +47,19 @@ str(comp)
 
 comp$ID <- factor(comp$ID, levels = c("EPP24-1", "EPP24-2", "EPP24-3", "EPP24-4", "EPP24-5", "EPP24-6", "EPP24-7", "EPP24-8", "EPP24-9", "EPP24-10", "EPP24-11", "EPP24-12", "EPP24-13", "EPP24-14", "EPP24-15", "EPP24-16", "EPP24-17", "EPP24-18", "EPP24-19", "EPP24-20", "EPP24-21", "EPP24-22", "EPP24-23", "EPP24-24", "EPP24-25", "EPP24-26", "EPP24-27", "EPP24-28", "EPP24-29", "EPP24-30", "EPP24-31", "EPP24-32", "EPP24-33", "EPP24-34", "EPP24-35"))
 
-comp <- droplevels(comp[!comp$ID == 'EPP24-27',])
-comp <- droplevels(comp[!comp$ID == 'EPP24-15',])
-comp <- droplevels(comp[!comp$ID == 'EPP24-9',])
-comp <- comp[-25,]
-comp <- droplevels(comp[!comp$ID == 'EPP24-8',])
+comp <- droplevels(comp[!comp$ID == 'EPP24-27',]) #died before 260
+comp <- droplevels(comp[!comp$ID == 'EPP24-15',]) #died before 260
+comp <- droplevels(comp[!comp$ID == 'EPP24-9',]) #outlier
+comp <- comp[-25,] #video of 20 min instead of 30
+comp <- droplevels(comp[!comp$ID == 'EPP24-8',]) #died before 260
+#S1 for details
 
 comp[which(comp$TDM == 0),"TDM"] <- 0.0000001
 
 comp$DPH_s <- as.numeric(scale(comp$DPH))
 ```
+
+Graphique S3
 
 ```{r}
 comp$ID <- gsub("EPP24-", "EPP-", comp$ID)
@@ -99,7 +102,7 @@ b10 <- brm(
 saveRDS(b10, "b10.rds")
 b10 <- readRDS("b10.rds")
 
-#check if iteration etc are good
+#check if iterations are good
 print(b10) #Rhat = 1.00
 
 #ICCs were computed as the ratio of between-individual variance to total variance.
@@ -118,6 +121,7 @@ ci <- quantile(icc_draws, c(0.025, 0.975))
 
 df_icc_10 <- data.frame(icc = icc_draws)
 
+#graph not kept, but data of all stages put together in Figure 1.
 ggplot(df_icc_10, aes(x = icc)) +
   geom_density(fill = "skyblue", alpha = 0.4) +
   geom_vline(xintercept = m, color = "blue", linewidth = 1) +
@@ -336,7 +340,7 @@ summary_df <- df_icc %>%
     .groups = "drop"
   )
 
-# Ridgeline plot
+# Ridgeline plot = Figure 1
 ggplot(df_icc, aes(x = icc, y = factor(DPH), fill = factor(DPH))) +
   geom_density_ridges(
     alpha = 0.6, color = "black",
@@ -755,7 +759,7 @@ comp_mean <- comp %>%
   left_join(behavior_score, by = "ID")
 ```
 
-Splines by ID
+Splines by ID = Figure 2a.
 
 ```{r}
 ggplot() +
@@ -780,7 +784,7 @@ ggplot() +
   )
 ```
 
-Random slopes
+Random slopes = Figure 2b.
 
 ```{r}
 ran <- ranef(m_final)$ID
@@ -863,6 +867,8 @@ emm <- emmeans(
 )
 
 emm_df <- as.data.frame(emm)
+
+#Figure 3.
 
 ggplot(slopes_df, aes(x = group, y = b1, fill = group)) +
   geom_violin(trim = FALSE, alpha = 0.6, color = NA) +
@@ -959,6 +965,8 @@ G_long <- G_long %>%
 G_long_upper <- G_long %>%
   filter(x <= y)
 
+#Figure 4
+
 ggplot(G_long_upper, aes(x = x, y = y, fill = value)) +
   geom_tile(color = "white") +
   geom_text(aes(label = round(value, 2)), color = "black", size = 4) +
@@ -986,6 +994,7 @@ ggplot(G_long_upper, aes(x = x, y = y, fill = value)) +
     title = "Among-individuals correlation matrix"
   )
 ```
+
 
 
 
